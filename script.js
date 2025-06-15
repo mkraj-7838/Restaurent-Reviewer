@@ -4,7 +4,7 @@ let userLocation = null;
 let mapVisible = false;
 let markersCluster = null;
 
-// DOM Elements
+// DOM Elements with null checks
 const authSection = document.getElementById("auth");
 const mainSection = document.getElementById("main");
 const logoutBtn = document.getElementById("logout-btn");
@@ -19,14 +19,34 @@ const refreshBtn = document.getElementById("refresh-btn");
 const modal = document.getElementById("modal");
 const modalBackdrop = document.getElementById("modal-backdrop");
 
+// Debounce utility
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
 // Initialize the application
 document.addEventListener("DOMContentLoaded", () => {
+  if (!authSection || !mainSection || !logoutBtn || !loadingIndicator || !searchInput ||
+      !notReviewedList || !reviewedList || !mapContainer || !toggleMapBtn ||
+      !sortDistanceBtn || !refreshBtn || !modal || !modalBackdrop) {
+    console.error("Required DOM elements are missing");
+    return;
+  }
+
   // Event listeners
   logoutBtn.addEventListener("click", logout);
   toggleMapBtn.addEventListener("click", toggleMap);
   sortDistanceBtn.addEventListener("click", sortRestaurantsByDistance);
   refreshBtn.addEventListener("click", loadRestaurants);
-  searchInput.addEventListener("input", handleSearch);
+  searchInput.addEventListener("input", debounce(handleSearch, 300));
   modalBackdrop.addEventListener("click", closeModal);
   modal.querySelector("button").addEventListener("click", closeModal);
 
@@ -42,9 +62,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Login function
 async function login() {
-  const username = document.getElementById("username").value.trim();
-  const password = document.getElementById("password").value.trim();
+  const usernameInput = document.getElementById("username");
+  const passwordInput = document.getElementById("password");
   const authError = document.getElementById("auth-error");
+
+  if (!usernameInput || !passwordInput || !authError) return;
+
+  const username = usernameInput.value.trim();
+  const password = passwordInput.value.trim();
 
   if (!username || !password) {
     authError.textContent = "Please enter both username and password";
@@ -61,12 +86,11 @@ async function login() {
       body: JSON.stringify({ username, password }),
     });
 
+    const data = await response.json();
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || "Login failed");
+      throw new Error(data.message || "Login failed");
     }
 
-    const data = await response.json();
     localStorage.setItem("token", data.token);
     authSection.classList.add("hidden");
     mainSection.classList.remove("hidden");
@@ -74,8 +98,7 @@ async function login() {
     initMap();
     getUserLocation();
   } catch (error) {
-    authError.textContent =
-      error.message || "Error logging in. Please try again.";
+    authError.textContent = error.message || "Error logging in. Please try again.";
     console.error("Login error:", error);
   } finally {
     loadingIndicator.classList.add("hidden");
@@ -88,36 +111,49 @@ function logout() {
   authSection.classList.remove("hidden");
   mainSection.classList.add("hidden");
   logoutBtn.classList.add("hidden");
-  document.getElementById("username").value = "";
-  document.getElementById("password").value = "";
-  document.getElementById("auth-error").textContent = "";
+  
+  const usernameInput = document.getElementById("username");
+  const passwordInput = document.getElementById("password");
+  const authError = document.getElementById("auth-error");
+  
+  if (usernameInput) usernameInput.value = "";
+  if (passwordInput) passwordInput.value = "";
+  if (authError) authError.textContent = "";
 
   // Clean up map
   if (map) {
     map.remove();
     map = null;
+    markersCluster = null;
   }
+  restaurants = [];
+  if (searchInput) searchInput.value = "";
 }
 
 // Initialize map
 function initMap() {
-  if (map) return;
+  if (map || !mapContainer) return;
 
   map = L.map("map").setView([28.6, 77.2], 12);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution:
-      '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
 
-  // Initialize marker cluster group
-  markersCluster = L.markerClusterGroup();
+  markersCluster = L.markerClusterGroup({
+    maxClusterRadius: 50,
+    disableClusteringAtZoom: 16,
+  });
   map.addLayer(markersCluster);
+
+  // Handle map resize
+  setTimeout(() => map.invalidateSize(), 100);
 }
 
 // Toggle map visibility
 function toggleMap() {
-  mapVisible = !mapVisible;
+  if (!mapContainer || !toggleMapBtn) return;
 
+  mapVisible = !mapVisible;
   if (mapVisible) {
     mapContainer.classList.remove("hidden");
     toggleMapBtn.textContent = "Hide Map";
@@ -133,9 +169,7 @@ function toggleMap() {
 // Get user location
 function getUserLocation() {
   if (!navigator.geolocation) {
-    alert(
-      "Geolocation is not supported by your browser. Using default location."
-    );
+    alert("Geolocation is not supported by your browser. Using default location.");
     loadRestaurants();
     return;
   }
@@ -149,12 +183,15 @@ function getUserLocation() {
         map.setView(userLocation, 13);
       }
       loadRestaurants();
+      loadingIndicator.classList.add("hidden");
     },
     (error) => {
       console.error("Geolocation error:", error);
       alert("Unable to retrieve your location. Using default view.");
       loadRestaurants();
-    }
+      loadingIndicator.classList.add("hidden");
+    },
+    { timeout: 10000 }
   );
 }
 
@@ -162,67 +199,53 @@ function getUserLocation() {
 async function loadRestaurants() {
   try {
     loadingIndicator.classList.remove("hidden");
-
-    // Check if token exists
     const token = localStorage.getItem("token");
     if (!token) {
       throw new Error("No authentication token found. Please login again.");
     }
 
-    // Build query string
     const queryParams = new URLSearchParams();
     if (userLocation) {
       queryParams.append("userLat", userLocation[0]);
       queryParams.append("userLng", userLocation[1]);
     }
 
-    const url = `https://restaurent-reviewer.onrender.com/api/restaurants?${queryParams.toString()}`;
-    console.log("Fetching restaurants from:", url);
-
-    const response = await fetch(url, {
+    const response = await fetch(`https://restaurent-reviewer.onrender.com/api/restaurants?${queryParams.toString()}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
     });
 
-    console.log("Response status:", response.status);
-
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(
-        errorData.message || `HTTP error! status: ${response.status}`
-      );
+      throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log("API response data:", data);
-
     if (!Array.isArray(data)) {
       throw new Error("Invalid data format received from server");
     }
 
-    // Process restaurant data
     restaurants = data.map((restaurant) => ({
-      ...restaurant,
-      // Ensure all required fields exist
-      _id: restaurant._id || restaurant.id || "",
-      Res_Name: restaurant.Res_Name || restaurant.name || "N/A",
-      Cuisines: restaurant.Cuisines || restaurant.cuisines || "N/A",
-      Address: restaurant.Address || restaurant.address || "N/A",
-      Latitude: restaurant.Latitude || restaurant.latitude || null,
-      Longitude: restaurant.Longitude || restaurant.longitude || null,
-      Del_Rating: restaurant.Del_Rating || restaurant.rating || null,
-      distance: restaurant.distance || null,
-      reviewed: restaurant.reviewed || false,
+      _id: restaurant._id || restaurant.id || crypto.randomUUID(),
+      Res_Name: restaurant.Res_Name || restaurant.name || "Unknown",
+      Cuisines: restaurant.Cuisines || restaurant.cuisines || "Unknown",
+      Address: restaurant.Address || restaurant.address || "Unknown",
+      Latitude: parseFloat(restaurant.Latitude || restaurant.latitude) || null,
+      Longitude: parseFloat(restaurant.Longitude || restaurant.longitude) || null,
+      Del_Rating: parseFloat(restaurant.Del_Rating || restaurant.rating) || null,
+      distance: parseFloat(restaurant.distance) || null,
+      reviewed: !!restaurant.reviewed,
+      Mobile: restaurant.Mobile || null,
+      Phone: restaurant.Phone || null,
+      Opening_Hours: restaurant.Opening_Hours || null,
+      Rest_Image: restaurant.Rest_Image || null,
     }));
 
-    console.log("Processed restaurants:", restaurants);
     displayRestaurants(restaurants);
   } catch (error) {
     console.error("Error loading restaurants:", error);
-
-    // Handle specific error cases
     if (error.message.includes("401")) {
       alert("Session expired. Please login again.");
       logout();
@@ -236,87 +259,40 @@ async function loadRestaurants() {
 
 // Display restaurants in tables and on map
 function displayRestaurants(data) {
-  // Clear existing markers
+  if (!notReviewedList || !reviewedList) return;
+
   if (markersCluster) {
     markersCluster.clearLayers();
   }
 
-  // Filter restaurants
   const notReviewed = data.filter((r) => !r.reviewed);
   const reviewed = data.filter((r) => r.reviewed);
 
-  // Safely update counts in headers
-  const notReviewedCountEl = document.querySelector(
-    "[data-not-reviewed-count]"
-  );
+  const notReviewedCountEl = document.querySelector("[data-not-reviewed-count]");
   const reviewedCountEl = document.querySelector("[data-reviewed-count]");
+  if (notReviewedCountEl) notReviewedCountEl.textContent = notReviewed.length;
+  if (reviewedCountEl) reviewedCountEl.textContent = reviewed.length;
 
-  if (notReviewedCountEl) {
-    notReviewedCountEl.textContent = notReviewed.length;
-  }
-
-  if (reviewedCountEl) {
-    reviewedCountEl.textContent = reviewed.length;
-  }
-  // Render not reviewed restaurants
-  notReviewedList.innerHTML = notReviewed
-    .map(
-      (restaurant) => `
-    <tr class="hover:bg-blue-50 transition-colors" data-id="${restaurant._id}">
-      <td class="p-3 text-gray-800 font-medium">${
-        restaurant.Res_Name || "N/A"
-      }</td>
-      <td class="p-3 text-gray-600">${restaurant.Cuisines || "N/A"}</td>
-      <td class="p-3 text-gray-600">${
-        restaurant.Del_Rating ? restaurant.Del_Rating.toFixed(1) : "N/A"
-      }</td>
-      <td class="p-3 text-gray-600">${
-        restaurant.distance ? restaurant.distance.toFixed(2) + " km" : "N/A"
-      }</td>
+  const createRow = (restaurant) => `
+    <tr class="hover:bg-${restaurant.reviewed ? 'green' : 'blue'}-50 transition-colors" data-id="${restaurant._id}">
+      <td class="p-3 text-gray-800 font-medium">${sanitizeHTML(restaurant.Res_Name)}</td>
+      <td class="p-3 text-gray-600">${sanitizeHTML(restaurant.Cuisines)}</td>
+      <td class="p-3 text-gray-600">${restaurant.Del_Rating ? restaurant.Del_Rating.toFixed(1) : "N/A"}</td>
+      <td class="p-3 text-gray-600">${restaurant.distance ? restaurant.distance.toFixed(2) + " km" : "N/A"}</td>
       <td class="p-3">
         <label class="inline-flex items-center cursor-pointer">
-          <input type="checkbox" onchange="updateReview('${
-            restaurant._id
-          }', this.checked)" 
-                 class="rounded border-gray-300 text-blue-500 focus:ring-blue-500 h-5 w-5">
+          <input type="checkbox" ${restaurant.reviewed ? 'checked' : ''} 
+                onchange="updateReview('${restaurant._id}', this.checked)"
+                class="rounded border-gray-300 text-blue-500 focus:ring-blue-500 h-5 w-5">
         </label>
       </td>
     </tr>
-  `
-    )
-    .join("");
+  `;
 
-  // Render reviewed restaurants
-  reviewedList.innerHTML = reviewed
-    .map(
-      (restaurant) => `
-    <tr class="hover:bg-green-50 transition-colors" data-id="${restaurant._id}">
-      <td class="p-3 text-gray-800 font-medium">${
-        restaurant.Res_Name || "N/A"
-      }</td>
-      <td class="p-3 text-gray-600">${restaurant.Cuisines || "N/A"}</td>
-      <td class="p-3 text-gray-600">${
-        restaurant.Del_Rating ? restaurant.Del_Rating.toFixed(1) : "N/A"
-      }</td>
-      <td class="p-3 text-gray-600">${
-        restaurant.distance ? restaurant.distance.toFixed(2) + " km" : "N/A"
-      }</td>
-      <td class="p-3">
-        <label class="inline-flex items-center cursor-pointer">
-          <input type="checkbox" checked onchange="updateReview('${
-            restaurant._id
-          }', this.checked)" 
-                 class="rounded border-gray-300 text-blue-500 focus:ring-blue-500 h-5 w-5">
-        </label>
-      </td>
-    </tr>
-  `
-    )
-    .join("");
+  notReviewedList.innerHTML = notReviewed.map(createRow).join("");
+  reviewedList.innerHTML = reviewed.map(createRow).join("");
 
-  // Add click handlers to rows
-  document
-    .querySelectorAll("#not-reviewed-list tr, #reviewed-list tr")
+  document.querySelectorAll("#not-reviewed-list tr, #reviewed-list tr")
     .forEach((row) => {
       row.addEventListener("click", (e) => {
         if (e.target.tagName !== "INPUT") {
@@ -327,23 +303,26 @@ function displayRestaurants(data) {
       });
     });
 
-  // Update map markers
   updateMapMarkers(data);
+}
+
+// Sanitize HTML input
+function sanitizeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
 }
 
 // Update map markers
 function updateMapMarkers(data) {
   if (!map || !markersCluster) return;
 
-  // Clear existing markers
   markersCluster.clearLayers();
 
-  // Add user location marker if available
   if (userLocation) {
     const userMarker = L.marker(userLocation, {
       icon: L.icon({
-        iconUrl:
-          "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+        iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
         iconSize: [25, 41],
         iconAnchor: [12, 41],
       }),
@@ -351,7 +330,6 @@ function updateMapMarkers(data) {
     markersCluster.addLayer(userMarker);
   }
 
-  // Add restaurant markers
   data.forEach((restaurant) => {
     if (restaurant.Latitude && restaurant.Longitude) {
       const iconUrl = restaurant.reviewed
@@ -365,11 +343,9 @@ function updateMapMarkers(data) {
           iconAnchor: [12, 41],
         }),
       }).bindPopup(`
-        <b>${restaurant.Res_Name || "N/A"}</b><br>
-        ${restaurant.Address || ""}<br>
-        <b>Rating:</b> ${
-          restaurant.Del_Rating ? restaurant.Del_Rating.toFixed(1) : "N/A"
-        }<br>
+        <b>${sanitizeHTML(restaurant.Res_Name)}</b><br>
+        ${sanitizeHTML(restaurant.Address || "")}<br>
+        <b>Rating:</b> ${restaurant.Del_Rating ? restaurant.Del_Rating.toFixed(1) : "N/A"}<br>
         <b>Status:</b> ${restaurant.reviewed ? "Reviewed" : "Not Reviewed"}
       `);
 
@@ -377,7 +353,6 @@ function updateMapMarkers(data) {
     }
   });
 
-  // Fit bounds to show all markers
   if (data.length > 0 && markersCluster.getLayers().length > 0) {
     map.fitBounds(markersCluster.getBounds(), { padding: [50, 50] });
   }
@@ -402,7 +377,7 @@ function sortRestaurantsByDistance() {
 
 // Handle search input
 function handleSearch(e) {
-  const query = e.target.value.toLowerCase();
+  const query = sanitizeHTML(e.target.value.toLowerCase());
   const filtered = restaurants.filter(
     (r) =>
       (r.Res_Name && r.Res_Name.toLowerCase().includes(query)) ||
@@ -414,33 +389,23 @@ function handleSearch(e) {
 
 // Show restaurant details modal
 function showModal(restaurant) {
-  // Set modal content
-  document.getElementById("modal-title").textContent =
-    restaurant.Res_Name || "N/A";
-  document.getElementById("modal-mobile").textContent =
-    restaurant.Mobile || "N/A";
-  document.getElementById("modal-phone").textContent =
-    restaurant.Phone || "N/A";
-  document.getElementById("modal-address").textContent =
-    restaurant.Address || "N/A";
-  document.getElementById("modal-opening-hours").textContent =
-    restaurant.Opening_Hours || "N/A";
-  document.getElementById("modal-cuisines").textContent =
-    restaurant.Cuisines || "N/A";
+  if (!modal) return;
+
+  document.getElementById("modal-title").textContent = restaurant.Res_Name || "N/A";
+  document.getElementById("modal-mobile").textContent = restaurant.Mobile || "N/A";
+  document.getElementById("modal-phone").textContent = restaurant.Phone || "N/A";
+  document.getElementById("modal-address").textContent = restaurant.Address || "N/A";
+  document.getElementById("modal-opening-hours").textContent = restaurant.Opening_Hours || "N/A";
+  document.getElementById("modal-cuisines").textContent = restaurant.Cuisines || "N/A";
   document.getElementById("modal-distance").textContent = restaurant.distance
     ? `${restaurant.distance.toFixed(2)} km`
     : "N/A";
 
-  // Set Google Maps link
-  const googleMapsLink =
-    restaurant.Latitude && restaurant.Longitude
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-          restaurant.Res_Name + ", " + restaurant.Address
-        )}`
-      : "#";
+  const googleMapsLink = restaurant.Latitude && restaurant.Longitude
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurant.Res_Name + ", " + restaurant.Address)}`
+    : "#";
   document.getElementById("modal-google-maps").href = googleMapsLink;
 
-  // Set image if available
   const imageContainer = document.getElementById("modal-image-container");
   const image = document.getElementById("modal-image");
   if (restaurant.Rest_Image && restaurant.Rest_Image !== "N/A") {
@@ -450,7 +415,6 @@ function showModal(restaurant) {
     imageContainer.classList.add("hidden");
   }
 
-  // Show modal with animation
   modal.classList.remove("hidden");
   setTimeout(() => {
     modal.classList.add("flex");
@@ -460,6 +424,8 @@ function showModal(restaurant) {
 
 // Close modal
 function closeModal() {
+  if (!modal) return;
+
   modal.classList.remove("flex");
   document.body.style.overflow = "";
   setTimeout(() => {
@@ -471,24 +437,25 @@ function closeModal() {
 async function updateReview(restaurantId, reviewed) {
   try {
     loadingIndicator.classList.remove("hidden");
-
-    const response = await fetch(
-      `https://restaurent-reviewer.onrender.com/api/restaurants/review/${restaurantId}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify({ reviewed }),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error("Failed to update review status");
+    const token = localStorage.getItem("token");
+    if (!token) {
+      throw new Error("No authentication token found. Please login again.");
     }
 
-    // Update local data and refresh display
+    const response = await fetch(`https://restaurent-reviewer.onrender.com//api/restaurants/review/${restaurantId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ reviewed }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || "Failed to update review status");
+    }
+
     const restaurant = restaurants.find((r) => r._id === restaurantId);
     if (restaurant) {
       restaurant.reviewed = reviewed;
@@ -496,7 +463,12 @@ async function updateReview(restaurantId, reviewed) {
     displayRestaurants(restaurants);
   } catch (error) {
     console.error("Error updating review:", error);
-    alert("Error updating review status. Please try again.");
+    if (error.message.includes("401")) {
+      alert("Session expired. Please login again.");
+      logout();
+    } else {
+      alert(`Error updating review: ${error.message}`);
+    }
   } finally {
     loadingIndicator.classList.add("hidden");
   }
