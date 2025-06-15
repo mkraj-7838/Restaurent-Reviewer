@@ -442,7 +442,7 @@ async function updateReview(restaurantId, reviewed) {
       throw new Error("No authentication token found. Please login again.");
     }
 
-    const response = await fetch(`https://restaurent-reviewer.onrender.com//api/restaurants/review/${restaurantId}`, {
+    const response = await fetch(`https://restaurent-reviewer.onrender.com/api/restaurants/review/${restaurantId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
