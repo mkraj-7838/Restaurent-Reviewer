@@ -104,7 +104,7 @@ async function login() {
     authError.textContent = "";
     loadingIndicator.classList.remove("hidden");
 
-    const response = await fetch("http://localhost:5000/api/auth/login", {
+    const response = await fetch("https://restaurent-reviewer.onrender.com/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -193,7 +193,7 @@ async function loadRestaurants() {
       queryParams.append("userLng", userLocation[1]);
     }
 
-    const response = await fetch(`http://localhost:5000/api/restaurants?${queryParams.toString()}`, {
+    const response = await fetch(`https://restaurent-reviewer.onrender.com/api/restaurants?${queryParams.toString()}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -414,7 +414,7 @@ async function submitReview(restaurantId) {
       throw new Error("No authentication token found. Please login again.");
     }
 
-    const response = await fetch(`http://localhost:5000/api/restaurants/review/${restaurantId}`, {
+    const response = await fetch(`https://restaurent-reviewer.onrender.com/api/restaurants/review/${restaurantId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
