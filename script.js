@@ -1,16 +1,21 @@
 let restaurants = [];
 let userLocation = null;
-let currentUser = null; // Store the logged-in username
-let currentRestaurantId = null; // Store restaurant ID for review submission
+let currentUser = null;
+let currentRestaurantId = null;
+let showReviewed = false;
 
-// DOM Elements with null checks
+// DOM Elements
 const authSection = document.getElementById("auth");
 const mainSection = document.getElementById("main");
 const logoutBtn = document.getElementById("logout-btn");
 const loadingIndicator = document.getElementById("loading");
 const searchInput = document.getElementById("search");
-const notReviewedList = document.getElementById("not-reviewed-list");
-const reviewedList = document.getElementById("reviewed-list");
+const clearSearchBtn = document.getElementById("clear-search");
+const restaurantList = document.getElementById("restaurant-list");
+const tableTitle = document.getElementById("table-title");
+const tableCount = document.getElementById("table-count");
+const toggleNotReviewed = document.getElementById("toggle-not-reviewed");
+const toggleReviewed = document.getElementById("toggle-reviewed");
 const sortDistanceBtn = document.getElementById("sort-distance-btn");
 const refreshBtn = document.getElementById("refresh-btn");
 const modal = document.getElementById("modal");
@@ -29,10 +34,11 @@ function debounce(func, wait) {
   };
 }
 
-// Initialize the application
+// Initialize
 document.addEventListener("DOMContentLoaded", () => {
   if (!authSection || !mainSection || !logoutBtn || !loadingIndicator || !searchInput ||
-      !notReviewedList || !reviewedList || !sortDistanceBtn || !refreshBtn || !modal || !modalBackdrop) {
+      !clearSearchBtn || !restaurantList || !tableTitle || !tableCount || !toggleNotReviewed ||
+      !toggleReviewed || !sortDistanceBtn || !refreshBtn || !modal || !modalBackdrop) {
     console.error("Required DOM elements are missing");
     return;
   }
@@ -42,10 +48,20 @@ document.addEventListener("DOMContentLoaded", () => {
   sortDistanceBtn.addEventListener("click", sortRestaurantsByDistance);
   refreshBtn.addEventListener("click", loadRestaurants);
   searchInput.addEventListener("input", debounce(handleSearch, 300));
+  clearSearchBtn.addEventListener("click", () => {
+    searchInput.value = "";
+    clearSearchBtn.classList.add("hidden");
+    displayRestaurants(restaurants);
+  });
+  searchInput.addEventListener("input", () => {
+    clearSearchBtn.classList.toggle("hidden", !searchInput.value);
+  });
   modalBackdrop.addEventListener("click", closeModal);
   modal.querySelector("button").addEventListener("click", closeModal);
+  toggleNotReviewed.addEventListener("click", () => toggleView(false));
+  toggleReviewed.addEventListener("click", () => toggleView(true));
 
-  // Check if user is already logged in
+  // Check login status
   if (localStorage.getItem("token")) {
     authSection.classList.add("hidden");
     mainSection.classList.remove("hidden");
@@ -54,7 +70,21 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-// Login function
+// Toggle table view
+function toggleView(showReviewedNew) {
+  showReviewed = showReviewedNew;
+  toggleNotReviewed.classList.toggle("bg-blue-600", !showReviewed);
+  toggleNotReviewed.classList.toggle("bg-gray-300", showReviewed);
+  toggleNotReviewed.classList.toggle("text-white", !showReviewed);
+  toggleNotReviewed.classList.toggle("text-gray-800", showReviewed);
+  toggleReviewed.classList.toggle("bg-blue-600", showReviewed);
+  toggleReviewed.classList.toggle("bg-gray-300", !showReviewed);
+  toggleReviewed.classList.toggle("text-white", showReviewed);
+  toggleReviewed.classList.toggle("text-gray-800", !showReviewed);
+  displayRestaurants(restaurants);
+}
+
+// Login
 async function login() {
   const usernameInput = document.getElementById("username");
   const passwordInput = document.getElementById("password");
@@ -86,7 +116,7 @@ async function login() {
     }
 
     localStorage.setItem("token", data.token);
-    currentUser = username; // Store the username
+    currentUser = username;
     authSection.classList.add("hidden");
     mainSection.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
@@ -99,10 +129,10 @@ async function login() {
   }
 }
 
-// Logout function
+// Logout
 function logout() {
   localStorage.removeItem("token");
-  currentUser = null; // Clear current user
+  currentUser = null;
   authSection.classList.remove("hidden");
   mainSection.classList.add("hidden");
   logoutBtn.classList.add("hidden");
@@ -116,13 +146,16 @@ function logout() {
   if (authError) authError.textContent = "";
 
   restaurants = [];
-  if (searchInput) searchInput.value = "";
+  if (searchInput) {
+    searchInput.value = "";
+    clearSearchBtn.classList.add("hidden");
+  }
 }
 
 // Get user location
 function getUserLocation() {
   if (!navigator.geolocation) {
-    alert("Geolocation is not supported by your browser. Using default location.");
+    alert("Geolocation is not supported by your browser.");
     loadRestaurants();
     return;
   }
@@ -137,7 +170,7 @@ function getUserLocation() {
     },
     (error) => {
       console.error("Geolocation error:", error);
-      alert("Unable to retrieve your location. Using default view.");
+      alert("Unable to retrieve your location.");
       loadRestaurants();
       loadingIndicator.classList.add("hidden");
     },
@@ -145,7 +178,7 @@ function getUserLocation() {
   );
 }
 
-// Load restaurants from API
+// Load restaurants
 async function loadRestaurants() {
   try {
     loadingIndicator.classList.remove("hidden");
@@ -180,17 +213,13 @@ async function loadRestaurants() {
     restaurants = data.map((restaurant) => ({
       _id: restaurant._id || restaurant.id || crypto.randomUUID(),
       Res_Name: restaurant.Res_Name || restaurant.name || "Unknown",
-      Cuisines: restaurant.Cuisines || restaurant.cuisines || "Unknown",
       Address: restaurant.Address || restaurant.address || "Unknown",
       Latitude: parseFloat(restaurant.Latitude || restaurant.latitude) || null,
       Longitude: parseFloat(restaurant.Longitude || restaurant.longitude) || null,
-      Del_Rating: parseFloat(restaurant.Del_Rating || restaurant.rating) || null,
       distance: parseFloat(restaurant.distance) || null,
+      Mobile: restaurant.Mobile || null,
       reviewed: !!restaurant.reviewed,
       reviewedBy: restaurant.reviewedBy || null,
-      Mobile: restaurant.Mobile || null,
-      Phone: restaurant.Phone || null,
-      Opening_Hours: restaurant.Opening_Hours || null,
     }));
 
     displayRestaurants(restaurants);
@@ -207,47 +236,62 @@ async function loadRestaurants() {
   }
 }
 
-// Display restaurants in tables
+// Display restaurants
 function displayRestaurants(data) {
-  if (!notReviewedList || !reviewedList) return;
+  if (!restaurantList || !tableTitle || !tableCount) return;
 
-  const notReviewed = data.filter((r) => !r.reviewed);
-  const reviewed = data.filter((r) => r.reviewed);
-
-  const notReviewedCountEl = document.querySelector("[data-not-reviewed-count]");
-  const reviewedCountEl = document.querySelector("[data-reviewed-count]");
-  if (notReviewedCountEl) notReviewedCountEl.textContent = notReviewed.length;
-  if (reviewedCountEl) reviewedCountEl.textContent = reviewed.length;
-
+  const filtered = showReviewed ? data.filter((r) => r.reviewed) : data.filter((r) => !r.reviewed);
+  tableTitle.innerHTML = `
+    <span id="table-count" class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center mr-2 text-sm">${filtered.length}</span>
+    ${showReviewed ? "Reviewed Restaurants" : "Restaurants to Review"}
+  `;
+  
   const createRow = (restaurant) => `
     <tr class="hover:bg-${restaurant.reviewed ? 'green' : 'blue'}-50 transition-colors duration-200" data-id="${restaurant._id}">
-      <td class="p-2 sm:p-3 text-gray-800 font-medium text-sm sm:text-base" data-label="Name">${sanitizeHTML(restaurant.Res_Name)}</td>
-      <td class="p-2 sm:p-3 text-gray-600 text-sm sm:text-base" data-label="Distance">${restaurant.distance ? restaurant.distance.toFixed(2) + " km" : "N/A"}</td>
-      <td class="p-2 sm:p-3 text-gray-600 text-sm sm:text-base" data-label="Map">
-        ${restaurant.Latitude && restaurant.Longitude ? 
-          `<a href="https://www.google.com/maps?q=${restaurant.Latitude},${restaurant.Longitude}" target="_blank" class="text-blue-500 hover:text-blue-700">Maps link</a>` 
+      <td class="font-medium">${sanitizeHTML(restaurant.Res_Name)}</td>
+      <td>${restaurant.distance ? restaurant.distance.toFixed(2) + " km" : "N/A"}</td>
+      <td>
+        ${restaurant.Latitude && restaurant.Longitude && userLocation ? 
+          `<button onclick="openMap('${restaurant.Latitude}', '${restaurant.Longitude}')" class="icon-btn text-blue-600 hover:text-blue-800">
+             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+               <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
+             </svg>
+           </button>` 
           : "N/A"}
       </td>
-      <td class="p-2 sm:p-3 text-sm sm:text-base" data-label="Details">
-        <button onclick="showModal('${restaurant._id}')" class="bg-blue-500 text-white px-2 py-1 sm:px-3 sm:py-1 rounded-lg hover:bg-blue-600 transition duration-200 text-xs sm:text-sm">
-          Details
+      <td>
+        <button onclick="showModal('${restaurant._id}')" class="icon-btn text-blue-600 hover:text-blue-800">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
         </button>
       </td>
     </tr>
   `;
 
-  notReviewedList.innerHTML = notReviewed.map(createRow).join("");
-  reviewedList.innerHTML = reviewed.map(createRow).join("");
+  restaurantList.innerHTML = filtered.map(createRow).join("");
 }
 
-// Sanitize HTML input
+// Open Google Maps directions
+function openMap(destLat, destLng) {
+  if (!userLocation) {
+    alert("User location not available. Please allow location access.");
+    return;
+  }
+  const origin = `${userLocation[0]},${userLocation[1]}`;
+  const destination = `${destLat},${destLng}`;
+  const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+  window.open(url, "_blank");
+}
+
+// Sanitize HTML
 function sanitizeHTML(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
 }
 
-// Sort restaurants by distance
+// Sort by distance
 function sortRestaurantsByDistance() {
   if (!userLocation) {
     alert("Please allow location access to sort by distance");
@@ -264,7 +308,7 @@ function sortRestaurantsByDistance() {
   displayRestaurants(sorted);
 }
 
-// Handle search input
+// Handle search
 function handleSearch(e) {
   const query = sanitizeHTML(e.target.value.toLowerCase());
   const filtered = restaurants.filter(
@@ -275,7 +319,7 @@ function handleSearch(e) {
   displayRestaurants(filtered);
 }
 
-// Toggle review form visibility
+// Toggle review form
 function toggleReviewForm(show) {
   const reviewSection = document.getElementById("review-section");
   const editReviewBtn = document.getElementById("edit-review-btn");
@@ -285,22 +329,16 @@ function toggleReviewForm(show) {
   }
 }
 
-// Show restaurant details modal
+// Show modal
 function showModal(restaurantId) {
   const restaurant = restaurants.find((r) => r._id === restaurantId);
   if (!modal || !restaurant) return;
 
-  currentRestaurantId = restaurantId; // Store restaurant ID for review submission
+  currentRestaurantId = restaurantId;
 
   document.getElementById("modal-title").textContent = restaurant.Res_Name || "N/A";
-  document.getElementById("modal-mobile").textContent = restaurant.Mobile || "N/A";
-  document.getElementById("modal-phone").textContent = restaurant.Phone || "N/A";
   document.getElementById("modal-address").textContent = restaurant.Address || "N/A";
-  document.getElementById("modal-opening-hours").textContent = restaurant.Opening_Hours || "N/A";
-  document.getElementById("modal-cuisines").textContent = restaurant.Cuisines || "N/A";
-  document.getElementById("modal-distance").textContent = restaurant.distance
-    ? `${restaurant.distance.toFixed(2)} km`
-    : "N/A";
+  document.getElementById("modal-mobile").textContent = restaurant.Mobile || "N/A";
   document.getElementById("modal-review-status").textContent = restaurant.reviewed ? "Reviewed" : "Not Reviewed";
   document.getElementById("modal-reviewed-by").textContent = restaurant.reviewedBy || "N/A";
 
@@ -314,23 +352,24 @@ function showModal(restaurantId) {
   reviewerNameInput.value = restaurant.reviewedBy || currentUser || "";
   reviewError.textContent = "";
 
-  // Show edit button if reviewed, otherwise show review form
   toggleReviewForm(!restaurant.reviewed);
   editReviewBtn.classList.toggle("hidden", !restaurant.reviewed);
 
-  // Add event listeners
   submitReviewBtn.onclick = () => submitReview(restaurantId);
   editReviewBtn.onclick = () => toggleReviewForm(true);
 
-  const googleMapsLink = restaurant.Latitude && restaurant.Longitude
-    ? `https://www.google.com/maps?q=${restaurant.Latitude},${restaurant.Longitude}`
-    : "#";
-  document.getElementById("modal-google-maps").href = googleMapsLink;
+  if (restaurant.Latitude && restaurant.Longitude && userLocation) {
+    const googleMapsLink = `https://www.google.com/maps/dir/?api=1&origin=${userLocation[0]},${userLocation[1]}&destination=${restaurant.Latitude},${restaurant.Longitude}&travelmode=driving`;
+    document.getElementById("modal-google-maps").href = googleMapsLink;
+  } else {
+    document.getElementById("modal-google-maps").href = "#";
+  }
 
   modal.classList.remove("hidden");
   setTimeout(() => {
     modal.classList.add("flex");
     document.body.style.overflow = "hidden";
+    modal.querySelector(".popup-enter").classList.remove("popup-exit");
   }, 10);
 }
 
@@ -338,15 +377,17 @@ function showModal(restaurantId) {
 function closeModal() {
   if (!modal) return;
 
+  modal.querySelector(".popup-enter").classList.add("popup-exit");
   modal.classList.remove("flex");
   document.body.style.overflow = "";
-  currentRestaurantId = null; // Clear restaurant ID
+  currentRestaurantId = null;
   setTimeout(() => {
     modal.classList.add("hidden");
+    modal.querySelector(".popup-enter").classList.remove("popup-exit");
   }, 300);
 }
 
-// Submit review from modal
+// Submit review
 async function submitReview(restaurantId) {
   const reviewCheckbox = document.getElementById("modal-review-checkbox");
   const reviewerNameInput = document.getElementById("modal-reviewer-name");
@@ -394,7 +435,7 @@ async function submitReview(restaurantId) {
       document.getElementById("modal-review-status").textContent = reviewed ? "Reviewed" : "Not Reviewed";
       document.getElementById("modal-reviewed-by").textContent = reviewedBy || "N/A";
       reviewError.textContent = "";
-      toggleReviewForm(!reviewed); // Hide form if reviewed
+      toggleReviewForm(!reviewed);
     }
     displayRestaurants(restaurants);
   } catch (error) {
