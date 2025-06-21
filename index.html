@@ -3,12 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Restaurant Review</title>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+  <title>Restaurants</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
+    /* Custom animations */
     .fade-in {
       animation: fadeIn 0.3s ease-in-out;
     }
@@ -23,80 +21,112 @@
       from { transform: translateY(20px); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
     }
-    #map { min-height: 400px; }
+    .scale-in {
+      animation: scaleIn 0.2s ease-out;
+    }
+    @keyframes scaleIn {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    /* Smooth scroll */
+    html {
+      scroll-behavior: smooth;
+    }
+    /* Responsive table */
+    @media (max-width: 640px) {
+      table {
+        display: block;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+      thead {
+        display: none;
+      }
+      tr {
+        display: block;
+        margin-bottom: 1rem;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        padding: 1rem;
+      }
+      td {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.5rem 0;
+        border: none;
+      }
+      td:before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: #4b5563;
+        margin-right: 1rem;
+      }
+    }
   </style>
 </head>
-<body class="bg-gray-50 font-sans antialiased">
+<body class="bg-gray-100 font-sans antialiased">
   <!-- Header -->
-  <header class="bg-blue-700 text-white p-4 shadow-lg sticky top-0 z-10">
+  <header class="bg-blue-600 text-white p-4 shadow-lg sticky top-0 z-10 transition-all duration-300">
     <div class="container mx-auto flex justify-between items-center">
-      <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Restaurant Review</h1>
-      <nav class="flex space-x-4">
-        <button id="logout-btn" class="bg-red-500 px-4 py-2 rounded-lg hover:bg-red-600 transition duration-200 hidden">Logout</button>
+      <h1 class="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">Restaurants App</h1>
+      <nav class="flex space-x-2 sm:space-x-4">
+        <button id="logout-btn" class="bg-red-500 px-3 py-1 sm:px-4 sm:py-2 rounded-lg hover:bg-red-600 transition duration-200 text-sm sm:text-base hidden">Logout</button>
       </nav>
     </div>
   </header>
 
   <!-- Login Section -->
-  <div id="auth" class="container mx-auto p-6 flex items-center justify-center min-h-[calc(100vh-160px)]">
-    <div class="max-w-sm w-full bg-white p-8 rounded-xl shadow-xl">
-      <h2 class="text-2xl font-semibold mb-6 text-center text-gray-800">Login</h2>
+  <div id="auth" class="container mx-auto p-4 sm:p-6 flex items-center justify-center min-h-[calc(100vh-80px)] transition-all duration-300">
+    <div class="max-w-xs sm:max-w-sm w-full bg-white p-6 sm:p-8 rounded-xl shadow-xl scale-in">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-6 text-center text-gray-800">Login</h2>
       <div class="mb-4">
-        <label for="username" class="block text-gray-700 mb-2">Username</label>
+        <label for="username" class="block text-gray-700 mb-2 text-sm sm:text-base">Username</label>
         <input type="text" id="username" placeholder="Enter username" 
-               class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200">
+               class="w-full p-2 sm:p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 text-sm sm:text-base">
       </div>
       <div class="mb-6">
-        <label for="password" class="block text-gray-700 mb-2">Password</label>
+        <label for="password" class="block text-gray-700 mb-2 text-sm sm:text-base">Password</label>
         <input type="password" id="password" placeholder="Enter password" 
-               class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200">
+               class="w-full p-2 sm:p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 text-sm sm:text-base">
       </div>
-      <button onclick="login()" class="w-full bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 transition duration-200">Login</button>
-      <p id="auth-error" class="text-red-500 mt-3 text-center"></p>
+      <button onclick="login()" class="w-full bg-blue-500 text-white p-2 sm:p-3 rounded-lg hover:bg-blue-600 transition duration-200 text-sm sm:text-base">Login</button>
+      <p id="auth-error" class="text-red-500 mt-3 text-center text-xs sm:text-sm"></p>
     </div>
   </div>
 
   <!-- Main Content -->
-  <div id="main" class="container mx-auto p-4 md:p-6 hidden">
+  <div id="main" class="container mx-auto p-4 sm:p-6 hidden transition-all duration-300">
     <!-- Controls Section -->
     <div class="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
       <div class="w-full sm:max-w-md">
-        <input type="text" id="search" placeholder="Search by name, cuisine or address" 
-               class="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200">
+        <input type="text" id="search" placeholder="Search by name or address" 
+               class="w-full p-2 sm:p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 text-sm sm:text-base">
       </div>
       <div class="flex flex-wrap gap-2 w-full sm:w-auto">
-        <button id="sort-distance-btn" class="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition duration-200 flex-1 sm:flex-none">
+        <button id="sort-distance-btn" class="bg-blue-500 text-white px-3 py-1 sm:px-4 sm:py-2 rounded-lg hover:bg-blue-600 transition duration-200 flex-1 sm:flex-none text-sm sm:text-base">
           <span class="hidden sm:inline">Sort by</span> Distance
         </button>
-        <button id="toggle-map-btn" class="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition duration-200 flex-1 sm:flex-none">
-          Show Map
-        </button>
-        <button id="refresh-btn" class="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition duration-200 flex-1 sm:flex-none">
+        <button id="refresh-btn" class="bg-green-500 text-white px-3 py-1 sm:px-4 sm:py-2 rounded-lg hover:bg-green-600 transition duration-200 flex-1 sm:flex-none text-sm sm:text-base">
           Refresh
         </button>
       </div>
     </div>
 
     <!-- Loading Spinner -->
-    <div id="loading" class="hidden text-center my-8">
+    <div id="loading" class="hidden text-center my-8 fade-in">
       <div class="inline-flex items-center">
-        <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-        <span class="ml-3 text-gray-600">Loading restaurants...</span>
+        <div class="animate-spin rounded-full h-6 w-6 sm:h-8 sm:w-8 border-t-2 border-b-2 border-blue-500"></div>
+        <span class="ml-3 text-gray-600 text-sm sm:text-base">Loading restaurants...</span>
       </div>
     </div>
 
-    <!-- Map (Hidden by default) -->
-    <div id="map-container" class="hidden mb-8 rounded-xl overflow-hidden shadow-lg border border-gray-200">
-      <div id="map" class="w-full"></div>
-    </div>
-
     <!-- Restaurants Tables -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
       <!-- Not Reviewed Restaurants -->
-      <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+      <div class="bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300">
         <div class="p-4 bg-blue-50 border-b">
-          <h2 class="text-xl font-semibold text-gray-800 flex items-center">
-            <span data-not-reviewed-count class="bg-blue-500 text-white rounded-full w-6 h-6 flex items-center justify-center mr-2 text-sm">0</span>
+          <h2 class="text-lg sm:text-xl font-semibold text-gray-800 flex items-center">
+            <span data-not-reviewed-count class="bg-blue-500 text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center mr-2 text-xs sm:text-sm">0</span>
             Restaurants to Review
           </h2>
         </div>
@@ -104,11 +134,10 @@
           <table class="w-full">
             <thead class="bg-gray-100">
               <tr>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Name</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Cuisines</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Rating</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Distance</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Review</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Name</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Distance</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Map</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Details</th>
               </tr>
             </thead>
             <tbody id="not-reviewed-list" class="divide-y divide-gray-200"></tbody>
@@ -117,10 +146,10 @@
       </div>
 
       <!-- Reviewed Restaurants -->
-      <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+      <div class="bg-white rounded-xl shadow-lg overflow-hidden transition-all duration-300">
         <div class="p-4 bg-green-50 border-b">
-          <h2 class="text-xl font-semibold text-gray-800 flex items-center">
-            <span data-reviewed-count class="bg-green-500 text-white rounded-full w-6 h-6 flex items-center justify-center mr-2 text-sm">0</span>
+          <h2 class="text-lg sm:text-xl font-semibold text-gray-800 flex items-center">
+            <span data-reviewed-count class="bg-green-500 text-white rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center mr-2 text-xs sm:text-sm">0</span>
             Reviewed Restaurants
           </h2>
         </div>
@@ -128,11 +157,10 @@
           <table class="w-full">
             <thead class="bg-gray-100">
               <tr>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Name</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Cuisines</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Rating</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Distance</th>
-                <th class="p-3 text-left text-gray-700 whitespace-nowrap">Review</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Name</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Distance</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Map</th>
+                <th class="p-2 sm:p-3 text-left text-gray-700 whitespace-nowrap text-sm sm:text-base">Details</th>
               </tr>
             </thead>
             <tbody id="reviewed-list" class="divide-y divide-gray-200"></tbody>
@@ -142,26 +170,26 @@
     </div>
 
     <!-- Modal -->
-    <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center hidden">
+    <div id="modal" class="fixed inset-0 z-50 flex items-center justify-center hidden transition-all duration-300">
       <div class="absolute inset-0 bg-black bg-opacity-60" id="modal-backdrop"></div>
-      <div class="relative bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto fade-in slide-up">
+      <div class="relative bg-white rounded-xl shadow-2xl max-w-xs sm:max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto fade-in slide-up">
         <button class="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition duration-200" onclick="closeModal()">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-        <div class="p-6">
-          <h2 id="modal-title" class="text-2xl font-bold mb-4 text-gray-800 border-b pb-2"></h2>
-          <div class="space-y-4">
+        <div class="p-4 sm:p-6">
+          <h2 id="modal-title" class="text-lg sm:text-2xl font-bold mb-4 text-gray-800 border-b pb-2"></h2>
+          <div class="space-y-4 text-sm sm:text-base">
             <div>
               <h3 class="font-semibold text-gray-700 mb-1">Contact Information</h3>
               <div class="grid grid-cols-2 gap-2">
                 <div>
-                  <p class="text-sm text-gray-500">Phone</p>
+                  <p class="text-xs sm:text-sm text-gray-500">Phone</p>
                   <p id="modal-phone" class="text-gray-600">N/A</p>
                 </div>
                 <div>
-                  <p class="text-sm text-gray-500">Mobile</p>
+                  <p class="text-xs sm:text-sm text-gray-500">Mobile</p>
                   <p id="modal-mobile" class="text-gray-600">N/A</p>
                 </div>
               </div>
@@ -170,8 +198,8 @@
             <div>
               <h3 class="font-semibold text-gray-700 mb-1">Location</h3>
               <p id="modal-address" class="text-gray-600 mb-2">N/A</p>
-              <a id="modal-google-maps" href="#" target="_blank" class="inline-flex items-center text-blue-500 hover:text-blue-700">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <a id="modal-google-maps" href="#" target="_blank" class="inline-flex items-center text-blue-500 hover:text-blue-700 text-xs sm:text-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5 mr-1" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
                 </svg>
                 View on Google Maps
@@ -180,23 +208,49 @@
             
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <p class="text-sm text-gray-500">Opening Hours</p>
+                <p class="text-xs sm:text-sm text-gray-500">Opening Hours</p>
                 <p id="modal-opening-hours" class="text-gray-600">N/A</p>
               </div>
               <div>
-                <p class="text-sm text-gray-500">Distance</p>
+                <p class="text-xs sm:text-sm text-gray-500">Distance</p>
                 <p id="modal-distance" class="text-gray-600">N/A</p>
               </div>
             </div>
             
             <div>
-              <p class="text-sm text-gray-500">Cuisines</p>
+              <p class="text-xs sm:text-sm text-gray-500">Cuisines</p>
               <p id="modal-cuisines" class="text-gray-600">N/A</p>
             </div>
+
+            <div>
+              <p class="text-xs sm:text-sm text-gray-500">Review Status</p>
+              <p id="modal-review-status" class="text-gray-600">N/A</p>
+            </div>
             
-            <div id="modal-image-container" class="mt-4 hidden">
-              <p class="text-sm text-gray-500 mb-2">Restaurant Image</p>
-              <img id="modal-image" src="" alt="Restaurant" class="w-full rounded-lg border border-gray-200">
+            <div class="flex items-center">
+              <p class="text-xs sm:text-sm text-gray-500 mr-2">Reviewed By</p>
+              <p id="modal-reviewed-by" class="text-gray-600">N/A</p>
+              <button id="edit-review-btn" class="ml-2 text-blue-500 hover:text-blue-700 hidden transition duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-5 sm:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              </button>
+            </div>
+
+            <div id="review-section" class="hidden">
+              <h3 class="font-semibold text-gray-700 mb-2">Submit Review</h3>
+              <div class="flex items-center mb-2">
+                <input type="checkbox" id="modal-review-checkbox" 
+                       class="rounded border-gray-300 text-blue-500 focus:ring-blue-500 h-4 w-4 sm:h-5 sm:w-5 mr-2">
+                <label for="modal-review-checkbox" class="text-gray-600">Mark as Reviewed</label>
+              </div>
+              <div class="mb-2">
+                <label for="modal-reviewer-name" class="block text-gray-500 mb-1 text-xs sm:text-sm">Reviewer Name</label>
+                <input type="text" id="modal-reviewer-name" placeholder="Enter reviewer name" 
+                       class="w-full p-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition duration-200 text-sm sm:text-base">
+              </div>
+              <button id="modal-submit-review" class="w-full bg-blue-500 text-white p-2 rounded-lg hover:bg-blue-600 transition duration-200 text-sm sm:text-base">Submit Review</button>
+              <p id="modal-review-error" class="text-red-500 mt-2 text-xs sm:text-sm"></p>
             </div>
           </div>
         </div>
@@ -205,14 +259,12 @@
   </div>
 
   <!-- Footer -->
-  <footer class="bg-blue-700 text-white p-4 mt-8">
+  <footer class="bg-blue-600 text-white p-4 mt-8 transition-all duration-300">
     <div class="container mx-auto text-center">
-      <p class="text-sm">© 2025 Restaurant Review. All rights reserved.</p>
+      <p class="text-xs sm:text-sm">© 2025 Restaurants App. All rights reserved.</p>
     </div>
   </footer>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
   <script src="script.js"></script>
 </body>
 </html>
