@@ -33,9 +33,11 @@ router.get('/', authenticate, async (req, res) => {
     const distance = userLat && userLng && restaurant.Latitude && restaurant.Longitude
       ? calculateDistance(parseFloat(userLat), parseFloat(userLng), restaurant.Latitude, restaurant.Longitude)
       : null;
+    const review = reviews.find(review => review.restaurantId.toString() === restaurant._id.toString());
     return {
       ...restaurant._doc,
-      reviewed: reviews.find(review => review.restaurantId.toString() === restaurant._id.toString())?.reviewed || false,
+      reviewed: review ? review.reviewed : false,
+      reviewedBy: review ? review.reviewedBy : null,
       distance
     };
   });
@@ -43,11 +45,11 @@ router.get('/', authenticate, async (req, res) => {
 });
 
 router.post('/review/:id', authenticate, async (req, res) => {
-  const { reviewed } = req.body;
+  const { reviewed, reviewedBy } = req.body;
   const restaurantId = req.params.id;
   await Review.findOneAndUpdate(
     { restaurantId },
-    { restaurantId, reviewed },
+    { restaurantId, reviewed, reviewedBy: reviewed ? reviewedBy : null },
     { upsert: true }
   );
   res.json({ message: 'Review status updated' });
