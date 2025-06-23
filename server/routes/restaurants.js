@@ -4,6 +4,9 @@ const Restaurant = require('../models/Restaurant');
 const Review = require('../models/Review');
 const router = express.Router();
 
+
+
+
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'No token provided' });
@@ -13,6 +16,52 @@ const authenticate = (req, res, next) => {
     next();
   });
 };
+
+// POST route to add new restaurants
+router.post('/addRestaurants', async (req, res) => {
+  try {
+    const restaurant = req.body; // Expecting a single restaurant object
+
+    // Validate input
+    if (Array.isArray(restaurant)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a single restaurant object, not an array',
+      });
+    }
+
+    // Validate required fields
+    if (
+      !restaurant.Res_Name ||
+      !restaurant.Mobile ||
+      !restaurant.Address ||
+      restaurant.Latitude === undefined ||
+      restaurant.Longitude === undefined
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields in restaurant data',
+      });
+    }
+
+    // Insert restaurant into the database
+    const insertedRestaurant = await Restaurant.create(restaurant);
+
+    res.status(201).json({
+      success: true,
+      message: 'Restaurant added successfully',
+      data: insertedRestaurant,
+    });
+  } catch (error) {
+    console.error('Error adding restaurant:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while adding restaurant',
+      error: error.message,
+    });
+  }
+});
+
 
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth's radius in km
