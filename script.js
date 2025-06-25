@@ -280,7 +280,7 @@ function openMap(destLat, destLng) {
   }
   const origin = `${userLocation[0]},${userLocation[1]}`;
   const destination = `${destLat},${destLng}`;
-  const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+  const url = `https://www.google.com/maps/dir/? Hole dir die Wegbeschreibungapi=1&origin=${origin}&destination=${destination}&travelmode=driving`;
   window.open(url, "_blank");
 }
 
@@ -326,6 +326,22 @@ function toggleReviewForm(show) {
   if (reviewSection && editReviewBtn) {
     reviewSection.classList.toggle("hidden", !show);
     editReviewBtn.classList.toggle("hidden", show);
+    if (show) {
+      // Add the Google Form link with an external link icon dynamically when showing the review form
+      const reviewSectionDiv = reviewSection.querySelector(".mb-3");
+      if (reviewSectionDiv && !reviewSection.querySelector("#review-form-link")) {
+        const formLink = document.createElement("p");
+        formLink.id = "review-form-link";
+        formLink.className = "text-sm text-blue-600 hover:text-blue-800 mb-2 flex items-center";
+        formLink.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+          <a href="https://forms.gle/bNF9JHVUd2vbRqVJ8" target="_blank">Upload images and details for your review (link)</a>
+        `;
+        reviewSectionDiv.insertAdjacentElement("afterend", formLink);
+      }
+    }
   }
 }
 
