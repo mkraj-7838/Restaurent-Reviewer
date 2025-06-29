@@ -1,6 +1,5 @@
 // const BASE_API_URL = "http://localhost:5000"; // Change to https://restaurent-reviewer.onrender.com for production
-const BASE_API_URL = "https://restaurent-reviewer.onrender.com"; 
-
+const BASE_API_URL = "https://restaurent-reviewer.onrender.com";
 
 let restaurants = [];
 let userLocation = null;
@@ -40,6 +39,33 @@ const notReviewedPagination = document.getElementById("not-reviewed-pagination")
 const assignedPagination = document.getElementById("assigned-pagination");
 const completedPagination = document.getElementById("completed-pagination");
 
+// Validate DOM elements
+function validateDOMElements() {
+  const requiredElements = {
+    authSection, mainSection, logoutBtn, loadingIndicator, searchInput, clearSearchBtn,
+    restaurantListNotReviewed, restaurantListAssigned, restaurantListCompleted,
+    tableCountNotReviewed, tableCountAssigned, tableCountCompleted,
+    toggleNotReviewed, toggleAssigned, toggleCompleted, refreshBtn,
+    modal, modalBackdrop, notReviewedTable, assignedTable, completedTable,
+    notReviewedPagination, assignedPagination, completedPagination
+  };
+  for (const [key, element] of Object.entries(requiredElements)) {
+    if (!element) {
+      console.error(`DOM element missing: ${key}`);
+      alert("Application error: Missing critical UI elements. Please refresh the page or contact support.");
+      return false;
+    }
+  }
+  return true;
+}
+
+// Sanitize HTML
+function sanitizeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 // Format distance
 function formatDistance(distance) {
   if (!distance) return 'N/A';
@@ -61,7 +87,9 @@ function debounce(func, wait) {
 }
 
 // Initialize
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
+  if (!validateDOMElements()) return;
+
   // Event listeners
   logoutBtn.addEventListener("click", logout);
   refreshBtn.addEventListener("click", loadRestaurants);
@@ -83,19 +111,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const togglePasswordBtn = document.getElementById("toggle-password");
   const passwordInput = document.getElementById("password");
-  togglePasswordBtn.addEventListener("click", () => {
-    const isPasswordVisible = passwordInput.type === "text";
-    passwordInput.type = isPasswordVisible ? "password" : "text";
-    togglePasswordBtn.querySelector("i").classList.toggle("fa-eye", !isPasswordVisible);
-    togglePasswordBtn.querySelector("i").classList.toggle("fa-eye-slash", isPasswordVisible);
-  });
+  if (togglePasswordBtn && passwordInput) {
+    togglePasswordBtn.addEventListener("click", () => {
+      const isPasswordVisible = passwordInput.type === "text";
+      passwordInput.type = isPasswordVisible ? "password" : "text";
+      togglePasswordBtn.querySelector("i").classList.toggle("fa-eye", !isPasswordVisible);
+      togglePasswordBtn.querySelector("i").classList.toggle("fa-eye-slash", isPasswordVisible);
+    });
+  }
 
   // Check login status
-  if (localStorage.getItem("token")) {
+  const token = localStorage.getItem("token");
+  if (token) {
+    currentUser = localStorage.getItem("username") || null; // Restore username
     authSection.classList.add("hidden");
     mainSection.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
-    getUserLocation();
+    await getUserLocation(); // Load restaurants after validating token
+  } else {
+    authSection.classList.remove("hidden");
+    mainSection.classList.add("hidden");
+    logoutBtn.classList.add("hidden");
   }
 });
 
@@ -139,6 +175,11 @@ async function login() {
   const passwordInput = document.getElementById("password");
   const authError = document.getElementById("auth-error");
 
+  if (!usernameInput || !passwordInput || !authError) {
+    alert("Application error: Login form elements missing.");
+    return;
+  }
+
   const username = usernameInput.value.trim();
   const password = passwordInput.value.trim();
 
@@ -163,11 +204,14 @@ async function login() {
     }
 
     localStorage.setItem("token", data.token);
+    localStorage.setItem("username", username); // Store username
     currentUser = username;
     authSection.classList.add("hidden");
     mainSection.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
-    getUserLocation();
+    usernameInput.value = "";
+    passwordInput.value = "";
+    await getUserLocation();
   } catch (error) {
     authError.textContent = error.message || "Error logging in. Please try again.";
     console.error("Login error:", error);
@@ -179,15 +223,16 @@ async function login() {
 // Logout
 function logout() {
   localStorage.removeItem("token");
+  localStorage.removeItem("username");
   currentUser = null;
   authSection.classList.remove("hidden");
   mainSection.classList.add("hidden");
   logoutBtn.classList.add("hidden");
-  
+
   const usernameInput = document.getElementById("username");
   const passwordInput = document.getElementById("password");
   const authError = document.getElementById("auth-error");
-  
+
   if (usernameInput) usernameInput.value = "";
   if (passwordInput) passwordInput.value = "";
   if (authError) authError.textContent = "";
@@ -201,25 +246,25 @@ function logout() {
 }
 
 // Get user location
-function getUserLocation() {
+async function getUserLocation() {
   if (!navigator.geolocation) {
     alert("Geolocation is not supported by your browser.");
-    loadRestaurants();
+    await loadRestaurants();
     return;
   }
 
   loadingIndicator.classList.remove("hidden");
 
   navigator.geolocation.getCurrentPosition(
-    (position) => {
+    async (position) => {
       userLocation = [position.coords.latitude, position.coords.longitude];
-      loadRestaurants();
+      await loadRestaurants();
       loadingIndicator.classList.add("hidden");
     },
-    (error) => {
+    async (error) => {
       console.error("Geolocation error:", error);
-      alert("Unable to retrieve your location.");
-      loadRestaurants();
+      alert("Unable to retrieve your location. Loading restaurants without location sorting.");
+      await loadRestaurants();
       loadingIndicator.classList.add("hidden");
     },
     { timeout: 10000 }
@@ -250,6 +295,9 @@ async function loadRestaurants() {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        throw new Error("Session expired. Please login again.");
+      }
       throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
     }
 
@@ -276,8 +324,8 @@ async function loadRestaurants() {
     displayRestaurants(restaurants);
   } catch (error) {
     console.error("Error loading restaurants:", error);
-    if (error.message.includes("401")) {
-      alert("Session expired. Please login again.");
+    if (error.message.includes("Session expired")) {
+      alert(error.message);
       logout();
     } else {
       alert(`Error loading restaurants: ${error.message}`);
@@ -352,8 +400,8 @@ function displayRestaurants(data) {
       <tr class="hover:bg-slate-50 transition-colors duration-200 animate-fadeIn" data-id="${restaurant._id}">
         <td class="font-medium">
           <div class="flex flex-col">
-            <span>${restaurant.Res_Name || "N/A"}</span>
-            <span class="text-xs text-slate-500 mt-1">${restaurant.Address || ""}</span>
+            <span>${sanitizeHTML(restaurant.Res_Name || "N/A")}</span>
+            <span class="text-xs text-slate-500 mt-1">${sanitizeHTML(restaurant.Address || "")}</span>
           </div>
         </td>
         ${restaurant.reviewStatus === 'not reviewed' ? `
@@ -375,7 +423,7 @@ function displayRestaurants(data) {
           </td>
         ` : `
           <td class="text-center text-sm text-slate-600">
-            ${restaurant.reviewedBy || "N/A"}
+            ${sanitizeHTML(restaurant.reviewedBy || "N/A")}
           </td>
           <td class="text-center">
             <div class="flex justify-center space-x-2">
@@ -434,7 +482,7 @@ function openMap(destLat, destLng) {
 
 // Handle search
 function handleSearch(e) {
-  const query = e.target.value.toLowerCase();
+  const query = sanitizeHTML(e.target.value.toLowerCase());
   const filtered = restaurants.filter(
     (r) =>
       (r.Res_Name && r.Res_Name.toLowerCase().includes(query)) ||
@@ -452,21 +500,23 @@ function toggleReviewForm(show, status) {
   const reviewerNameText = document.getElementById("modal-reviewer-name-text");
   const submitReviewBtn = document.getElementById("modal-submit-review");
   const reviewFormLinkContainer = document.getElementById("review-form-link-container");
+
+  if (reviewSection && reviewTitle && submitReviewBtn && reviewerNameInput && reviewerNameText && reviewFormLinkContainer) {
+    reviewSection.classList.toggle("hidden", !show);
+    reviewTitle.textContent = status === 'not reviewed' ? 'Assign this review' : 'Complete this review';
+    submitReviewBtn.innerHTML = status === 'not reviewed' 
+      ? '<i class="fas fa-user-edit mr-2"></i> Assign Reviewer' 
+      : '<i class="fas fa-check-circle mr-2"></i> Mark as Completed';
   
-  reviewSection.classList.toggle("hidden", !show);
-  reviewTitle.textContent = status === 'not reviewed' ? 'Assign this review' : 'Complete this review';
-  submitReviewBtn.innerHTML = status === 'not reviewed' 
-    ? '<i class="fas fa-user-edit mr-2"></i> Assign Reviewer' 
-    : '<i class="fas fa-check-circle mr-2"></i> Mark as Completed';
-  
-  if (status === 'not reviewed') {
-    reviewerNameInput.classList.remove("hidden");
-    reviewerNameText.classList.add("hidden");
-    reviewFormLinkContainer.classList.add("hidden");
-  } else {
-    reviewerNameInput.classList.add("hidden");
-    reviewerNameText.classList.remove("hidden");
-    reviewFormLinkContainer.classList.remove("hidden");
+    if (status === 'not reviewed') {
+      reviewerNameInput.classList.remove("hidden");
+      reviewerNameText.classList.add("hidden");
+      reviewFormLinkContainer.classList.add("hidden");
+    } else {
+      reviewerNameInput.classList.add("hidden");
+      reviewerNameText.classList.remove("hidden");
+      reviewFormLinkContainer.classList.remove("hidden");
+    }
   }
 }
 
@@ -478,10 +528,10 @@ function showModal(restaurantId) {
   currentRestaurantId = restaurantId;
 
   // Set modal content
-  document.getElementById("modal-title").textContent = restaurant.Res_Name || "N/A";
-  document.getElementById("modal-address").textContent = restaurant.Address || "N/A";
-  document.getElementById("modal-mobile").textContent = restaurant.Mobile || "N/A";
-  document.getElementById("modal-reviewed-by").textContent = restaurant.reviewedBy || "N/A";
+  document.getElementById("modal-title").textContent = sanitizeHTML(restaurant.Res_Name || "N/A");
+  document.getElementById("modal-address").textContent = sanitizeHTML(restaurant.Address || "N/A");
+  document.getElementById("modal-mobile").textContent = sanitizeHTML(restaurant.Mobile || "N/A");
+  document.getElementById("modal-reviewed-by").textContent = sanitizeHTML(restaurant.reviewedBy || "N/A");
 
   // Set status badge
   const statusBadge = document.getElementById("modal-review-status");
@@ -497,8 +547,8 @@ function showModal(restaurantId) {
   // Set reviewer name
   const reviewerNameInput = document.getElementById("modal-reviewer-name");
   const reviewerNameText = document.getElementById("modal-reviewer-name-text");
-  reviewerNameInput.value = restaurant.reviewedBy || currentUser || "";
-  reviewerNameText.textContent = restaurant.reviewedBy || "N/A";
+  reviewerNameInput.value = sanitizeHTML(restaurant.reviewedBy || currentUser || "");
+  reviewerNameText.textContent = sanitizeHTML(restaurant.reviewedBy || "N/A");
 
   // Clear any previous errors
   document.getElementById("modal-review-error").textContent = "";
@@ -541,6 +591,8 @@ async function submitReview(restaurantId, currentStatus) {
   const reviewerNameInput = document.getElementById("modal-reviewer-name");
   const reviewError = document.getElementById("modal-review-error");
 
+  if (!reviewerNameInput || !reviewError) return;
+
   const reviewedBy = reviewerNameInput.value.trim();
 
   if (currentStatus === 'not reviewed' && !reviewedBy) {
@@ -576,6 +628,9 @@ async function submitReview(restaurantId, currentStatus) {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        throw new Error("Session expired. Please login again.");
+      }
       throw new Error(errorData.message || "Failed to update review status");
     }
 
@@ -586,8 +641,8 @@ async function submitReview(restaurantId, currentStatus) {
       restaurant.reviewedBy = data.review.reviewedBy;
       
       // Update modal content
-      document.getElementById("modal-reviewed-by").textContent = data.review.reviewedBy || "N/A";
-      document.getElementById("modal-reviewer-name-text").textContent = data.review.reviewedBy || "N/A";
+      document.getElementById("modal-reviewed-by").textContent = sanitizeHTML(data.review.reviewedBy || "N/A");
+      document.getElementById("modal-reviewer-name-text").textContent = sanitizeHTML(data.review.reviewedBy || "N/A");
       
       // Update status badge
       const statusBadge = document.getElementById("modal-review-status");
@@ -611,8 +666,8 @@ async function submitReview(restaurantId, currentStatus) {
   } catch (error) {
     console.error("Error updating review:", error);
     reviewError.textContent = error.message || "Failed to update review";
-    if (error.message.includes("401")) {
-      alert("Session expired. Please login again.");
+    if (error.message.includes("Session expired")) {
+      alert(error.message);
       logout();
     }
   } finally {
