@@ -81,6 +81,15 @@ document.addEventListener("DOMContentLoaded", () => {
   toggleAssigned.addEventListener("click", () => toggleView('assigned'));
   toggleCompleted.addEventListener("click", () => toggleView('completed'));
 
+  const togglePasswordBtn = document.getElementById("toggle-password");
+  const passwordInput = document.getElementById("password");
+  togglePasswordBtn.addEventListener("click", () => {
+    const isPasswordVisible = passwordInput.type === "text";
+    passwordInput.type = isPasswordVisible ? "password" : "text";
+    togglePasswordBtn.querySelector("i").classList.toggle("fa-eye", !isPasswordVisible);
+    togglePasswordBtn.querySelector("i").classList.toggle("fa-eye-slash", isPasswordVisible);
+  });
+
   // Check login status
   if (localStorage.getItem("token")) {
     authSection.classList.add("hidden");
