@@ -1,4 +1,6 @@
-const BASE_API_URL = "http://localhost:5000"; // Change to https://restaurent-reviewer.onrender.com for production
+// const BASE_API_URL = "http://localhost:5000"; // Change to https://restaurent-reviewer.onrender.com for production
+const BASE_API_URL = "https://restaurent-reviewer.onrender.com"; 
+
 
 let restaurants = [];
 let userLocation = null;
