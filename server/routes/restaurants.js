@@ -4,9 +4,6 @@ const Restaurant = require('../models/Restaurant');
 const Review = require('../models/Review');
 const router = express.Router();
 
-
-
-
 const authenticate = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'No token provided' });
@@ -62,7 +59,6 @@ router.post('/addRestaurants', async (req, res) => {
   }
 });
 
-
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth's radius in km
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -85,7 +81,7 @@ router.get('/', authenticate, async (req, res) => {
     const review = reviews.find(review => review.restaurantId.toString() === restaurant._id.toString());
     return {
       ...restaurant._doc,
-      reviewed: review ? review.reviewed : false,
+      reviewStatus: review ? review.reviewStatus : 'not reviewed',
       reviewedBy: review ? review.reviewedBy : null,
       distance
     };
@@ -93,15 +89,82 @@ router.get('/', authenticate, async (req, res) => {
   res.json(restaurantsWithReviews);
 });
 
-router.post('/review/:id', authenticate, async (req, res) => {
-  const { reviewed, reviewedBy } = req.body;
+// POST route to assign a review
+router.post('/review/assign/:id', authenticate, async (req, res) => {
+  const { reviewedBy } = req.body;
   const restaurantId = req.params.id;
-  await Review.findOneAndUpdate(
-    { restaurantId },
-    { restaurantId, reviewed, reviewedBy: reviewed ? reviewedBy : null },
-    { upsert: true }
-  );
-  res.json({ message: 'Review status updated' });
+
+  try {
+    // Check if restaurant exists
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant) {
+      return res.status(404).json({ message: 'Restaurant not found' });
+    }
+
+    // Update or create review with status 'assigned'
+    const review = await Review.findOneAndUpdate(
+      { restaurantId },
+      { 
+        restaurantId, 
+        reviewStatus: 'assigned',
+        reviewedBy: reviewedBy || null 
+      },
+      { 
+        upsert: true,
+        new: true 
+      }
+    );
+
+    res.json({ 
+      message: 'Review assigned successfully',
+      review 
+    });
+  } catch (error) {
+    console.error('Error assigning review:', error);
+    res.status(500).json({
+      message: 'Server error while assigning review',
+      error: error.message
+    });
+  }
+});
+
+// POST route to complete a review
+router.post('/review/complete/:id', authenticate, async (req, res) => {
+  const restaurantId = req.params.id;
+
+  try {
+    // Check if restaurant exists
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant) {
+      return res.status(404).json({ message: 'Restaurant not found' });
+    }
+
+    // Check if review exists and is in assigned state
+    const existingReview = await Review.findOne({ restaurantId });
+    if (!existingReview || existingReview.reviewStatus !== 'assigned') {
+      return res.status(400).json({ 
+        message: 'Review must be in assigned state to mark as completed' 
+      });
+    }
+
+    // Update review status to completed
+    const review = await Review.findOneAndUpdate(
+      { restaurantId },
+      { reviewStatus: 'completed' },
+      { new: true }
+    );
+
+    res.json({ 
+      message: 'Review marked as completed',
+      review 
+    });
+  } catch (error) {
+    console.error('Error completing review:', error);
+    res.status(500).json({
+      message: 'Server error while completing review',
+      error: error.message
+    });
+  }
 });
 
 module.exports = router;

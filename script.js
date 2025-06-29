@@ -1,8 +1,16 @@
+const BASE_API_URL = "http://localhost:5000"; // Change to https://restaurent-reviewer.onrender.com for production
+
 let restaurants = [];
 let userLocation = null;
 let currentUser = null;
 let currentRestaurantId = null;
-let showReviewed = false;
+let currentView = 'not reviewed'; // Default view
+const ITEMS_PER_PAGE = 25;
+let paginationState = {
+  'not reviewed': { currentPage: 1, totalPages: 1 },
+  'assigned': { currentPage: 1, totalPages: 1 },
+  'completed': { currentPage: 1, totalPages: 1 }
+};
 
 // DOM Elements
 const authSection = document.getElementById("auth");
@@ -11,15 +19,31 @@ const logoutBtn = document.getElementById("logout-btn");
 const loadingIndicator = document.getElementById("loading");
 const searchInput = document.getElementById("search");
 const clearSearchBtn = document.getElementById("clear-search");
-const restaurantList = document.getElementById("restaurant-list");
-const tableTitle = document.getElementById("table-title");
-const tableCount = document.getElementById("table-count");
+const restaurantListNotReviewed = document.getElementById("restaurant-list-not-reviewed");
+const restaurantListAssigned = document.getElementById("restaurant-list-assigned");
+const restaurantListCompleted = document.getElementById("restaurant-list-completed");
+const tableCountNotReviewed = document.getElementById("table-count-not-reviewed");
+const tableCountAssigned = document.getElementById("table-count-assigned");
+const tableCountCompleted = document.getElementById("table-count-completed");
 const toggleNotReviewed = document.getElementById("toggle-not-reviewed");
-const toggleReviewed = document.getElementById("toggle-reviewed");
-const sortDistanceBtn = document.getElementById("sort-distance-btn");
+const toggleAssigned = document.getElementById("toggle-assigned");
+const toggleCompleted = document.getElementById("toggle-completed");
 const refreshBtn = document.getElementById("refresh-btn");
 const modal = document.getElementById("modal");
 const modalBackdrop = document.getElementById("modal-backdrop");
+const notReviewedTable = document.getElementById("not-reviewed-table");
+const assignedTable = document.getElementById("assigned-table");
+const completedTable = document.getElementById("completed-table");
+const notReviewedPagination = document.getElementById("not-reviewed-pagination");
+const assignedPagination = document.getElementById("assigned-pagination");
+const completedPagination = document.getElementById("completed-pagination");
+
+// Format distance
+function formatDistance(distance) {
+  if (!distance) return 'N/A';
+  if (distance < 1) return `${(distance * 1000).toFixed(0)}m`;
+  return `${distance.toFixed(1)}km`;
+}
 
 // Debounce utility
 function debounce(func, wait) {
@@ -36,30 +60,24 @@ function debounce(func, wait) {
 
 // Initialize
 document.addEventListener("DOMContentLoaded", () => {
-  if (!authSection || !mainSection || !logoutBtn || !loadingIndicator || !searchInput ||
-      !clearSearchBtn || !restaurantList || !tableTitle || !tableCount || !toggleNotReviewed ||
-      !toggleReviewed || !sortDistanceBtn || !refreshBtn || !modal || !modalBackdrop) {
-    console.error("Required DOM elements are missing");
-    return;
-  }
-
   // Event listeners
   logoutBtn.addEventListener("click", logout);
-  sortDistanceBtn.addEventListener("click", sortRestaurantsByDistance);
   refreshBtn.addEventListener("click", loadRestaurants);
   searchInput.addEventListener("input", debounce(handleSearch, 300));
   clearSearchBtn.addEventListener("click", () => {
     searchInput.value = "";
     clearSearchBtn.classList.add("hidden");
+    resetPagination();
     displayRestaurants(restaurants);
   });
   searchInput.addEventListener("input", () => {
     clearSearchBtn.classList.toggle("hidden", !searchInput.value);
   });
   modalBackdrop.addEventListener("click", closeModal);
-  modal.querySelector("button").addEventListener("click", closeModal);
-  toggleNotReviewed.addEventListener("click", () => toggleView(false));
-  toggleReviewed.addEventListener("click", () => toggleView(true));
+  modal.querySelector("button.close-modal").addEventListener("click", closeModal);
+  toggleNotReviewed.addEventListener("click", () => toggleView('not reviewed'));
+  toggleAssigned.addEventListener("click", () => toggleView('assigned'));
+  toggleCompleted.addEventListener("click", () => toggleView('completed'));
 
   // Check login status
   if (localStorage.getItem("token")) {
@@ -71,17 +89,37 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Toggle table view
-function toggleView(showReviewedNew) {
-  showReviewed = showReviewedNew;
-  toggleNotReviewed.classList.toggle("bg-blue-600", !showReviewed);
-  toggleNotReviewed.classList.toggle("bg-gray-300", showReviewed);
-  toggleNotReviewed.classList.toggle("text-white", !showReviewed);
-  toggleNotReviewed.classList.toggle("text-gray-800", showReviewed);
-  toggleReviewed.classList.toggle("bg-blue-600", showReviewed);
-  toggleReviewed.classList.toggle("bg-gray-300", !showReviewed);
-  toggleReviewed.classList.toggle("text-white", showReviewed);
-  toggleReviewed.classList.toggle("text-gray-800", !showReviewed);
+function toggleView(view) {
+  currentView = view;
+
+  // Update button styles
+  toggleNotReviewed.classList.toggle("bg-indigo-600", view === 'not reviewed');
+  toggleNotReviewed.classList.toggle("bg-slate-200", view !== 'not reviewed');
+  toggleNotReviewed.classList.toggle("text-white", view === 'not reviewed');
+  toggleNotReviewed.classList.toggle("text-slate-700", view !== 'not reviewed');
+  toggleAssigned.classList.toggle("bg-amber-500", view === 'assigned');
+  toggleAssigned.classList.toggle("bg-slate-200", view !== 'assigned');
+  toggleAssigned.classList.toggle("text-white", view === 'assigned');
+  toggleAssigned.classList.toggle("text-slate-700", view !== 'assigned');
+  toggleCompleted.classList.toggle("bg-emerald-500", view === 'completed');
+  toggleCompleted.classList.toggle("bg-slate-200", view !== 'completed');
+  toggleCompleted.classList.toggle("text-white", view === 'completed');
+  toggleCompleted.classList.toggle("text-slate-700", view !== 'completed');
+
+  // Show/hide tables
+  notReviewedTable.classList.toggle("hidden", view !== 'not reviewed');
+  assignedTable.classList.toggle("hidden", view !== 'assigned');
+  completedTable.classList.toggle("hidden", view !== 'completed');
+
+  resetPagination();
   displayRestaurants(restaurants);
+}
+
+// Reset pagination for all views
+function resetPagination() {
+  paginationState['not reviewed'].currentPage = 1;
+  paginationState['assigned'].currentPage = 1;
+  paginationState['completed'].currentPage = 1;
 }
 
 // Login
@@ -89,8 +127,6 @@ async function login() {
   const usernameInput = document.getElementById("username");
   const passwordInput = document.getElementById("password");
   const authError = document.getElementById("auth-error");
-
-  if (!usernameInput || !passwordInput || !authError) return;
 
   const username = usernameInput.value.trim();
   const password = passwordInput.value.trim();
@@ -104,7 +140,7 @@ async function login() {
     authError.textContent = "";
     loadingIndicator.classList.remove("hidden");
 
-    const response = await fetch("https://restaurent-reviewer.onrender.com/api/auth/login", {
+    const response = await fetch(`${BASE_API_URL}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
@@ -150,6 +186,7 @@ function logout() {
     searchInput.value = "";
     clearSearchBtn.classList.add("hidden");
   }
+  resetPagination();
 }
 
 // Get user location
@@ -193,7 +230,7 @@ async function loadRestaurants() {
       queryParams.append("userLng", userLocation[1]);
     }
 
-    const response = await fetch(`https://restaurent-reviewer.onrender.com/api/restaurants?${queryParams.toString()}`, {
+    const response = await fetch(`${BASE_API_URL}/api/restaurants?${queryParams.toString()}`, {
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -218,10 +255,13 @@ async function loadRestaurants() {
       Longitude: parseFloat(restaurant.Longitude || restaurant.longitude) || null,
       distance: parseFloat(restaurant.distance) || null,
       Mobile: restaurant.Mobile || null,
-      reviewed: !!restaurant.reviewed,
+      reviewStatus: restaurant.reviewStatus || 'not reviewed',
       reviewedBy: restaurant.reviewedBy || null,
     }));
 
+    // Sort by distance by default
+    restaurants.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+    resetPagination();
     displayRestaurants(restaurants);
   } catch (error) {
     console.error("Error loading restaurants:", error);
@@ -236,40 +276,137 @@ async function loadRestaurants() {
   }
 }
 
+// Create pagination controls
+function createPaginationControls(totalItems, view, paginationContainer) {
+  const totalPages = Math.ceil(totalItems / ITEMS_PER_PAGE);
+  paginationState[view].totalPages = totalPages;
+  const currentPage = paginationState[view].currentPage;
+
+  let paginationHTML = `
+    <button class="pagination-btn ${currentPage === 1 ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-700 hover:bg-slate-100'} rounded-l-lg px-3 py-1 border border-slate-300 text-sm" 
+            onclick="changePage('${view}', ${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>
+      <i class="fas fa-chevron-left"></i>
+    </button>
+  `;
+
+  const maxVisiblePages = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+  if (endPage - startPage + 1 < maxVisiblePages) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    paginationHTML += `
+      <button class="pagination-btn ${i === currentPage ? 'bg-indigo-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-100'} px-3 py-1 border border-slate-300 text-sm" 
+              onclick="changePage('${view}', ${i})">
+        ${i}
+      </button>
+    `;
+  }
+
+  paginationHTML += `
+    <button class="pagination-btn ${currentPage === totalPages ? 'bg-slate-200 text-slate-400 cursor-not-allowed' : 'bg-white text-slate-700 hover:bg-slate-100'} rounded-r-lg px-3 py-1 border border-slate-300 text-sm" 
+            onclick="changePage('${view}', ${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''}>
+      <i class="fas fa-chevron-right"></i>
+    </button>
+  `;
+
+  paginationContainer.innerHTML = paginationHTML;
+}
+
+// Change page
+function changePage(view, page) {
+  if (page < 1 || page > paginationState[view].totalPages) return;
+  paginationState[view].currentPage = page;
+  displayRestaurants(restaurants);
+}
+
 // Display restaurants
 function displayRestaurants(data) {
-  if (!restaurantList || !tableTitle || !tableCount) return;
+  const notReviewed = data.filter((r) => r.reviewStatus === 'not reviewed');
+  const assigned = data.filter((r) => r.reviewStatus === 'assigned');
+  const completed = data.filter((r) => r.reviewStatus === 'completed');
 
-  const filtered = showReviewed ? data.filter((r) => r.reviewed) : data.filter((r) => !r.reviewed);
-  tableTitle.innerHTML = `
-    <span id="table-count" class="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center mr-2 text-sm">${filtered.length}</span>
-    ${showReviewed ? "Reviewed Restaurants" : "Restaurants to Review"}
-  `;
-  
-  const createRow = (restaurant) => `
-    <tr class="hover:bg-${restaurant.reviewed ? 'green' : 'blue'}-50 transition-colors duration-200" data-id="${restaurant._id}">
-      <td class="font-medium">${sanitizeHTML(restaurant.Res_Name)}</td>
-      <td>${restaurant.distance ? restaurant.distance.toFixed(2) + " km" : "N/A"}</td>
-      <td>
-        ${restaurant.Latitude && restaurant.Longitude && userLocation ? 
-          `<button onclick="openMap('${restaurant.Latitude}', '${restaurant.Longitude}')" class="icon-btn text-blue-600 hover:text-blue-800">
-             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-               <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" />
-             </svg>
-           </button>` 
-          : "N/A"}
-      </td>
-      <td>
-        <button onclick="showModal('${restaurant._id}')" class="icon-btn text-blue-600 hover:text-blue-800">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        </button>
-      </td>
-    </tr>
-  `;
+  const createRow = (restaurant) => {
+    let statusBadge = '';
+    if (restaurant.reviewStatus === 'assigned') {
+      statusBadge = `<span class="badge badge-warning">Assigned</span>`;
+    } else if (restaurant.reviewStatus === 'completed') {
+      statusBadge = `<span class="badge badge-success">Completed</span>`;
+    }
+    
+    return `
+      <tr class="hover:bg-slate-50 transition-colors duration-200 animate-fadeIn" data-id="${restaurant._id}">
+        <td class="font-medium">
+          <div class="flex flex-col">
+            <span>${restaurant.Res_Name || "N/A"}</span>
+            <span class="text-xs text-slate-500 mt-1">${restaurant.Address || ""}</span>
+          </div>
+        </td>
+        ${restaurant.reviewStatus === 'not reviewed' ? `
+          <td class="text-center">
+            <div class="flex justify-center space-x-2">
+              ${restaurant.Latitude && restaurant.Longitude && userLocation ? `
+                <button onclick="openMap('${restaurant.Latitude}', '${restaurant.Longitude}')" 
+                        class="btn text-indigo-600 hover:text-indigo-800 p-2 rounded-full hover:bg-indigo-50" 
+                        title="View on map">
+                  <i class="fas fa-map-marker-alt"></i>
+                </button>
+              ` : ''}
+              <button onclick="showModal('${restaurant._id}')" 
+                      class="btn text-indigo-600 hover:text-indigo-800 p-2 rounded-full hover:bg-indigo-50" 
+                      title="View details">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </td>
+        ` : `
+          <td class="text-center text-sm text-slate-600">
+            ${restaurant.reviewedBy || "N/A"}
+          </td>
+          <td class="text-center">
+            <div class="flex justify-center space-x-2">
+              ${restaurant.Latitude && restaurant.Longitude && userLocation ? `
+                <button onclick="openMap('${restaurant.Latitude}', '${restaurant.Longitude}')" 
+                        class="btn text-indigo-600 hover:text-indigo-800 p-2 rounded-full hover:bg-indigo-50" 
+                        title="View on map">
+                  <i class="fas fa-map-marker-alt"></i>
+                </button>
+              ` : ''}
+              <button onclick="showModal('${restaurant._id}')" 
+                      class="btn text-indigo-600 hover:text-indigo-800 p-2 rounded-full hover:bg-indigo-50" 
+                      title="View details">
+                <i class="fas fa-eye"></i>
+              </button>
+            </div>
+          </td>
+        `}
+      </tr>
+    `;
+  };
 
-  restaurantList.innerHTML = filtered.map(createRow).join("");
+  // Paginate data
+  const paginate = (array, page) => {
+    const start = (page - 1) * ITEMS_PER_PAGE;
+    return array.slice(start, start + ITEMS_PER_PAGE);
+  };
+
+  // Display paginated data
+  restaurantListNotReviewed.innerHTML = paginate(notReviewed, paginationState['not reviewed'].currentPage).map(createRow).join("");
+  restaurantListAssigned.innerHTML = paginate(assigned, paginationState['assigned'].currentPage).map(createRow).join("");
+  restaurantListCompleted.innerHTML = paginate(completed, paginationState['completed'].currentPage).map(createRow).join("");
+
+  // Update table counts
+  tableCountNotReviewed.textContent = notReviewed.length;
+  tableCountAssigned.textContent = assigned.length;
+  tableCountCompleted.textContent = completed.length;
+
+  // Update pagination controls
+  createPaginationControls(notReviewed.length, 'not reviewed', notReviewedPagination);
+  createPaginationControls(assigned.length, 'assigned', assignedPagination);
+  createPaginationControls(completed.length, 'completed', completedPagination);
 }
 
 // Open Google Maps directions
@@ -280,68 +417,45 @@ function openMap(destLat, destLng) {
   }
   const origin = `${userLocation[0]},${userLocation[1]}`;
   const destination = `${destLat},${destLng}`;
-  const url = `https://www.google.com/maps/dir/? Hole dir die Wegbeschreibungapi=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+  const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
   window.open(url, "_blank");
-}
-
-// Sanitize HTML
-function sanitizeHTML(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
-}
-
-// Sort by distance
-function sortRestaurantsByDistance() {
-  if (!userLocation) {
-    alert("Please allow location access to sort by distance");
-    return;
-  }
-
-  const sorted = [...restaurants].sort((a, b) => {
-    if (a.reviewed === b.reviewed) {
-      return (a.distance || Infinity) - (b.distance || Infinity);
-    }
-    return a.reviewed ? 1 : -1;
-  });
-
-  displayRestaurants(sorted);
 }
 
 // Handle search
 function handleSearch(e) {
-  const query = sanitizeHTML(e.target.value.toLowerCase());
+  const query = e.target.value.toLowerCase();
   const filtered = restaurants.filter(
     (r) =>
       (r.Res_Name && r.Res_Name.toLowerCase().includes(query)) ||
       (r.Address && r.Address.toLowerCase().includes(query))
   );
+  resetPagination();
   displayRestaurants(filtered);
 }
 
 // Toggle review form
-function toggleReviewForm(show) {
+function toggleReviewForm(show, status) {
   const reviewSection = document.getElementById("review-section");
-  const editReviewBtn = document.getElementById("edit-review-btn");
-  if (reviewSection && editReviewBtn) {
-    reviewSection.classList.toggle("hidden", !show);
-    editReviewBtn.classList.toggle("hidden", show);
-    if (show) {
-      // Add the Google Form link with an external link icon dynamically when showing the review form
-      const reviewSectionDiv = reviewSection.querySelector(".mb-3");
-      if (reviewSectionDiv && !reviewSection.querySelector("#review-form-link")) {
-        const formLink = document.createElement("p");
-        formLink.id = "review-form-link";
-        formLink.className = "text-sm text-blue-600 hover:text-blue-800 mb-2 flex items-center";
-        formLink.innerHTML = `
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-          </svg>
-          <a href="https://forms.gle/bNF9JHVUd2vbRqVJ8" target="_blank">Upload images and details for your review (link)</a>
-        `;
-        reviewSectionDiv.insertAdjacentElement("afterend", formLink);
-      }
-    }
+  const reviewTitle = document.getElementById("review-title");
+  const reviewerNameInput = document.getElementById("modal-reviewer-name");
+  const reviewerNameText = document.getElementById("modal-reviewer-name-text");
+  const submitReviewBtn = document.getElementById("modal-submit-review");
+  const reviewFormLinkContainer = document.getElementById("review-form-link-container");
+  
+  reviewSection.classList.toggle("hidden", !show);
+  reviewTitle.textContent = status === 'not reviewed' ? 'Assign this review' : 'Complete this review';
+  submitReviewBtn.innerHTML = status === 'not reviewed' 
+    ? '<i class="fas fa-user-edit mr-2"></i> Assign Reviewer' 
+    : '<i class="fas fa-check-circle mr-2"></i> Mark as Completed';
+  
+  if (status === 'not reviewed') {
+    reviewerNameInput.classList.remove("hidden");
+    reviewerNameText.classList.add("hidden");
+    reviewFormLinkContainer.classList.add("hidden");
+  } else {
+    reviewerNameInput.classList.add("hidden");
+    reviewerNameText.classList.remove("hidden");
+    reviewFormLinkContainer.classList.remove("hidden");
   }
 }
 
@@ -352,28 +466,37 @@ function showModal(restaurantId) {
 
   currentRestaurantId = restaurantId;
 
+  // Set modal content
   document.getElementById("modal-title").textContent = restaurant.Res_Name || "N/A";
   document.getElementById("modal-address").textContent = restaurant.Address || "N/A";
   document.getElementById("modal-mobile").textContent = restaurant.Mobile || "N/A";
-  document.getElementById("modal-review-status").textContent = restaurant.reviewed ? "Reviewed" : "Not Reviewed";
   document.getElementById("modal-reviewed-by").textContent = restaurant.reviewedBy || "N/A";
 
-  const reviewCheckbox = document.getElementById("modal-review-checkbox");
+  // Set status badge
+  const statusBadge = document.getElementById("modal-review-status");
+  statusBadge.innerHTML = '';
+  if (restaurant.reviewStatus === 'not reviewed') {
+    statusBadge.innerHTML = '<span class="badge badge-primary">Pending</span>';
+  } else if (restaurant.reviewStatus === 'assigned') {
+    statusBadge.innerHTML = '<span class="badge badge-warning">Assigned</span>';
+  } else if (restaurant.reviewStatus === 'completed') {
+    statusBadge.innerHTML = '<span class="badge badge-success">Completed</span>';
+  }
+
+  // Set reviewer name
   const reviewerNameInput = document.getElementById("modal-reviewer-name");
-  const submitReviewBtn = document.getElementById("modal-submit-review");
-  const reviewError = document.getElementById("modal-review-error");
-  const editReviewBtn = document.getElementById("edit-review-btn");
-
-  reviewCheckbox.checked = restaurant.reviewed;
+  const reviewerNameText = document.getElementById("modal-reviewer-name-text");
   reviewerNameInput.value = restaurant.reviewedBy || currentUser || "";
-  reviewError.textContent = "";
+  reviewerNameText.textContent = restaurant.reviewedBy || "N/A";
 
-  toggleReviewForm(!restaurant.reviewed);
-  editReviewBtn.classList.toggle("hidden", !restaurant.reviewed);
+  // Clear any previous errors
+  document.getElementById("modal-review-error").textContent = "";
 
-  submitReviewBtn.onclick = () => submitReview(restaurantId);
-  editReviewBtn.onclick = () => toggleReviewForm(true);
+  // Set up review form
+  toggleReviewForm(restaurant.reviewStatus === 'not reviewed' || restaurant.reviewStatus === 'assigned', restaurant.reviewStatus);
+  document.getElementById("modal-submit-review").onclick = () => submitReview(restaurantId, restaurant.reviewStatus);
 
+  // Set up map link
   if (restaurant.Latitude && restaurant.Longitude && userLocation) {
     const googleMapsLink = `https://www.google.com/maps/dir/?api=1&origin=${userLocation[0]},${userLocation[1]}&destination=${restaurant.Latitude},${restaurant.Longitude}&travelmode=driving`;
     document.getElementById("modal-google-maps").href = googleMapsLink;
@@ -381,11 +504,11 @@ function showModal(restaurantId) {
     document.getElementById("modal-google-maps").href = "#";
   }
 
+  // Show modal with animation
   modal.classList.remove("hidden");
   setTimeout(() => {
     modal.classList.add("flex");
     document.body.style.overflow = "hidden";
-    modal.querySelector(".popup-enter").classList.remove("popup-exit");
   }, 10);
 }
 
@@ -393,33 +516,28 @@ function showModal(restaurantId) {
 function closeModal() {
   if (!modal) return;
 
-  modal.querySelector(".popup-enter").classList.add("popup-exit");
   modal.classList.remove("flex");
   document.body.style.overflow = "";
   currentRestaurantId = null;
+  
   setTimeout(() => {
     modal.classList.add("hidden");
-    modal.querySelector(".popup-enter").classList.remove("popup-exit");
   }, 300);
 }
 
 // Submit review
-async function submitReview(restaurantId) {
-  const reviewCheckbox = document.getElementById("modal-review-checkbox");
+async function submitReview(restaurantId, currentStatus) {
   const reviewerNameInput = document.getElementById("modal-reviewer-name");
   const reviewError = document.getElementById("modal-review-error");
 
-  if (!reviewCheckbox || !reviewerNameInput || !reviewError) return;
-
-  const reviewed = reviewCheckbox.checked;
   const reviewedBy = reviewerNameInput.value.trim();
 
-  if (reviewed && !reviewedBy) {
+  if (currentStatus === 'not reviewed' && !reviewedBy) {
     reviewError.textContent = "Please enter reviewer name";
     return;
   }
 
-  if (!confirm(`Are you sure you want to ${reviewed ? "mark as reviewed" : "remove review for"} this restaurant?`)) {
+  if (!confirm(`Are you sure you want to ${currentStatus === 'not reviewed' ? 'assign this review' : 'mark this review as completed'}?`)) {
     return;
   }
 
@@ -430,13 +548,19 @@ async function submitReview(restaurantId) {
       throw new Error("No authentication token found. Please login again.");
     }
 
-    const response = await fetch(`https://restaurent-reviewer.onrender.com/api/restaurants/review/${restaurantId}`, {
+    const endpoint = currentStatus === 'not reviewed' 
+      ? `${BASE_API_URL}/api/restaurants/review/assign/${restaurantId}`
+      : `${BASE_API_URL}/api/restaurants/review/complete/${restaurantId}`;
+
+    const body = currentStatus === 'not reviewed' ? { reviewedBy } : {};
+
+    const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ reviewed, reviewedBy: reviewed ? reviewedBy : null }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -444,15 +568,34 @@ async function submitReview(restaurantId) {
       throw new Error(errorData.message || "Failed to update review status");
     }
 
+    const data = await response.json();
     const restaurant = restaurants.find((r) => r._id === restaurantId);
     if (restaurant) {
-      restaurant.reviewed = reviewed;
-      restaurant.reviewedBy = reviewed ? reviewedBy : null;
-      document.getElementById("modal-review-status").textContent = reviewed ? "Reviewed" : "Not Reviewed";
-      document.getElementById("modal-reviewed-by").textContent = reviewedBy || "N/A";
+      restaurant.reviewStatus = data.review.reviewStatus;
+      restaurant.reviewedBy = data.review.reviewedBy;
+      
+      // Update modal content
+      document.getElementById("modal-reviewed-by").textContent = data.review.reviewedBy || "N/A";
+      document.getElementById("modal-reviewer-name-text").textContent = data.review.reviewedBy || "N/A";
+      
+      // Update status badge
+      const statusBadge = document.getElementById("modal-review-status");
+      statusBadge.innerHTML = '';
+      if (data.review.reviewStatus === 'not reviewed') {
+        statusBadge.innerHTML = '<span class="badge badge-primary">Pending</span>';
+      } else if (data.review.reviewStatus === 'assigned') {
+        statusBadge.innerHTML = '<span class="badge badge-warning">Assigned</span>';
+      } else if (data.review.reviewStatus === 'completed') {
+        statusBadge.innerHTML = '<span class="badge badge-success">Completed</span>';
+      }
+      
       reviewError.textContent = "";
-      toggleReviewForm(!reviewed);
+      toggleReviewForm(data.review.reviewStatus === 'not reviewed' || data.review.reviewStatus === 'assigned', data.review.reviewStatus);
     }
+    
+    // Refresh restaurant list
+    restaurants.sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+    resetPagination();
     displayRestaurants(restaurants);
   } catch (error) {
     console.error("Error updating review:", error);
